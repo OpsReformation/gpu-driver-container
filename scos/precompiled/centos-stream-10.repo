@@ -1,0 +1,15 @@
+[cs10-baseos]
+name=CentOS Stream 10 - BaseOS
+baseurl=https://mirror.stream.centos.org/10-stream/BaseOS/$basearch/os/
+gpgkey=https://www.centos.org/keys/RPM-GPG-KEY-CentOS-Official-SHA256
+gpgcheck=1
+repo_gpgcheck=0
+enabled=1
+
+[cs10-appstream]
+name=CentOS Stream 10 - AppStream
+baseurl=https://mirror.stream.centos.org/10-stream/AppStream/$basearch/os/
+gpgkey=https://www.centos.org/keys/RPM-GPG-KEY-CentOS-Official-SHA256
+gpgcheck=1
+repo_gpgcheck=0
+enabled=1

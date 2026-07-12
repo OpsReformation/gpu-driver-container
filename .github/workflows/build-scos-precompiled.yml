@@ -1,0 +1,241 @@
+name: Build SCOS Precompiled NVIDIA Driver
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'scos/**'
+      - '.github/workflows/build-scos-precompiled.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'scos/**'
+      - '.github/workflows/build-scos-precompiled.yml'
+  workflow_dispatch:
+    inputs:
+      okd_version:
+        description: 'OKD release (resolves DTK image, kernel, and OS tag)'
+        required: false
+        type: string
+        default: '4.21.0-okd-scos.11'
+      driver_version:
+        description: 'NVIDIA driver version'
+        required: false
+        type: string
+        default: '580.105.08'
+      cuda_version:
+        description: 'CUDA version for the base image'
+        required: false
+        type: string
+        default: '13.0.1'
+      push_to_registry:
+        description: 'Push container image to registry'
+        required: false
+        type: boolean
+        default: false
+
+env:
+  IMAGE_NAME: driver
+  REGISTRY: ghcr.io
+  OKD_VERSION: ${{ inputs.okd_version || '4.21.0-okd-scos.11' }}
+  DRIVER_VERSION: ${{ inputs.driver_version || '580.105.08' }}
+  CUDA_VERSION: ${{ inputs.cuda_version || '13.0.1' }}
+
+jobs:
+  lint-and-validate:
+    name: Lint and Validate Configuration
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Vendored NVIDIA scripts (nvidia-driver, common.sh) are excluded to
+      # stay diff-minimal with upstream; only files we author are linted.
+      - name: Check Dockerfile with hadolint
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: scos/precompiled/Dockerfile
+          failure-threshold: error
+
+      - name: Validate shell scripts
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+          shellcheck scos/precompiled/build-scos-driver.sh
+
+  resolve-versions:
+    name: Resolve OKD Release Versions
+    runs-on: ubuntu-latest
+    outputs:
+      dtk_image: ${{ steps.resolve.outputs.dtk_image }}
+      kernel_version: ${{ steps.resolve.outputs.kernel_version }}
+      os_tag: ${{ steps.resolve.outputs.os_tag }}
+    steps:
+      - name: Resolve driver toolkit image and kernel version
+        id: resolve
+        run: |
+          release_image="quay.io/okd/scos-release:${OKD_VERSION}"
+          echo "Resolving driver-toolkit from ${release_image}"
+          cid=$(docker create "$release_image" placeholder)
+          docker cp "$cid:/release-manifests/image-references" ./image-references
+          docker rm "$cid"
+          dtk_image=$(jq -r '.spec.tags[] | select(.name=="driver-toolkit") | .from.name' image-references)
+          echo "DTK image: $dtk_image"
+
+          kernel_version=$(docker run --rm "$dtk_image" cat /etc/driver-toolkit-release.json | jq -r .KERNEL_VERSION)
+          echo "Kernel version: $kernel_version"
+
+          os_tag="scos$(echo "$OKD_VERSION" | cut -d. -f1-2)"
+          echo "OS tag: $os_tag"
+
+          echo "dtk_image=$dtk_image" >> "$GITHUB_OUTPUT"
+          echo "kernel_version=$kernel_version" >> "$GITHUB_OUTPUT"
+          echo "os_tag=$os_tag" >> "$GITHUB_OUTPUT"
+
+  # Build, smoke-test, scan, and push happen in one job: the built image is
+  # multiple GB, so the CephaloProxy pattern of passing an image tarball
+  # between jobs via artifacts would dominate runtime and storage.
+  build-scan-push:
+    name: Build, Scan, and Push Container Image
+    runs-on: ubuntu-latest
+    needs: [lint-and-validate, resolve-versions]
+    permissions:
+      contents: read
+      packages: write
+      security-events: write
+    env:
+      DTK_IMAGE: ${{ needs.resolve-versions.outputs.dtk_image }}
+      KERNEL_VERSION: ${{ needs.resolve-versions.outputs.kernel_version }}
+      OS_TAG: ${{ needs.resolve-versions.outputs.os_tag }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Cache Docker layers
+        uses: actions/cache@v3
+        with:
+          path: /tmp/.buildx-cache
+          key: ${{ runner.os }}-buildx-scos-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-buildx-scos-
+
+      - name: Compute image tags
+        id: tags
+        run: |
+          driver_branch="${DRIVER_VERSION%%.*}"
+          kernel_noarch="${KERNEL_VERSION%.x86_64}"
+          full_tag="${DRIVER_VERSION}-${KERNEL_VERSION}-${OS_TAG}"
+          branch_tag="${driver_branch}-${KERNEL_VERSION}-${OS_TAG}"
+          echo "kernel_noarch=$kernel_noarch" >> "$GITHUB_OUTPUT"
+          echo "full_tag=$full_tag" >> "$GITHUB_OUTPUT"
+          echo "branch_tag=$branch_tag" >> "$GITHUB_OUTPUT"
+
+      - name: Build driver container image
+        uses: docker/build-push-action@v5
+        with:
+          context: scos/precompiled
+          file: scos/precompiled/Dockerfile
+          platforms: linux/amd64
+          push: false
+          load: true
+          tags: |
+            ${{ env.IMAGE_NAME }}:test
+          build-args: |
+            DRIVER_TOOLKIT_IMAGE=${{ env.DTK_IMAGE }}
+            RHEL_VERSION=10
+            CUDA_VERSION=${{ env.CUDA_VERSION }}
+            CUDA_DIST=ubi10
+            BUILD_ARCH=x86_64
+            TARGET_ARCH=x86_64
+            KERNEL_VERSION=${{ env.KERNEL_VERSION }}
+            KERNEL_VERSION_NOARCH=${{ steps.tags.outputs.kernel_noarch }}
+            DRIVER_VERSION=${{ env.DRIVER_VERSION }}
+            DRIVER_EPOCH=1
+            OS_TAG=${{ env.OS_TAG }}
+            BUILDER_USER=github-actions
+            BUILDER_EMAIL=github-actions@opsreformation
+          cache-from: type=local,src=/tmp/.buildx-cache
+          cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
+
+      - name: Smoke test image contents
+        run: |
+          echo "Checking precompiled kernel modules for ${KERNEL_VERSION}..."
+          docker run --rm --entrypoint sh ${{ env.IMAGE_NAME }}:test -c "
+            set -e
+            rpm -qa | grep kmod-nvidia
+            find /lib/modules/${KERNEL_VERSION} -name 'nvidia*.ko*' | grep .
+            command -v nvidia-smi
+            command -v nvidia-driver
+            ls /opt/lib/firmware/nvidia/${DRIVER_VERSION}/
+          "
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.IMAGE_NAME }}:test
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Upload Trivy results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v4
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+      - name: Log in to Container Registry
+        if: |
+          (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+          (github.event_name == 'workflow_dispatch' && inputs.push_to_registry == true)
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Tag and push tested image
+        if: |
+          (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+          (github.event_name == 'workflow_dispatch' && inputs.push_to_registry == true)
+        run: |
+          repo="${{ env.REGISTRY }}/${{ github.repository_owner }}"
+          repo=$(echo "$repo" | tr '[:upper:]' '[:lower:]')
+          for tag in "${{ steps.tags.outputs.full_tag }}" "${{ steps.tags.outputs.branch_tag }}"; do
+            echo "Tagging: ${{ env.IMAGE_NAME }}:test -> $repo/${{ env.IMAGE_NAME }}:$tag"
+            docker tag ${{ env.IMAGE_NAME }}:test "$repo/${{ env.IMAGE_NAME }}:$tag"
+            echo "Pushing: $repo/${{ env.IMAGE_NAME }}:$tag"
+            docker push "$repo/${{ env.IMAGE_NAME }}:$tag"
+          done
+
+      # Prevent cache from growing indefinitely
+      - name: Move cache
+        run: |
+          rm -rf /tmp/.buildx-cache
+          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
+
+  summary:
+    name: Build Summary
+    runs-on: ubuntu-latest
+    needs: [lint-and-validate, resolve-versions, build-scan-push]
+    if: always()
+    steps:
+      - name: Generate summary
+        run: |
+          echo "## SCOS Precompiled NVIDIA Driver Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Triggered by:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**OKD release:** ${{ env.OKD_VERSION }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Driver version:** ${{ env.DRIVER_VERSION }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Kernel version:** ${{ needs.resolve-versions.outputs.kernel_version }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Job Status" >> $GITHUB_STEP_SUMMARY
+          echo "- Lint and Validate: ${{ needs.lint-and-validate.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Resolve Versions: ${{ needs.resolve-versions.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Build, Scan, and Push: ${{ needs.build-scan-push.result }}" >> $GITHUB_STEP_SUMMARY

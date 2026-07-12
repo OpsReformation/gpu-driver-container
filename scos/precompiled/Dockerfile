@@ -151,7 +151,7 @@ RUN dnf install -y /rpms/kmod-nvidia-*.rpm \
 
 RUN if [ "${DRIVER_STREAM_TYPE}" == "development" ] ; then \
         curl -sLOf ${BASE_URL}/${DRIVER_VERSION}/NVIDIA-Linux-${TARGET_ARCH}-${DRIVER_VERSION}.run \
-        sh ./NVIDIA-Linux-${TARGET_ARCH}-${DRIVER_VERSION}.run \
+        && sh ./NVIDIA-Linux-${TARGET_ARCH}-${DRIVER_VERSION}.run \
             --silent \
             --accept-license \
             --no-kernel-modules \
@@ -174,12 +174,12 @@ RUN if [ "${DRIVER_STREAM_TYPE}" == "development" ] ; then \
             dnf install -y nvidia-fabricmanager-${DRIVER_VERSION} libnvidia-nscq-${DRIVER_VERSION}; \
             else \
             dnf install -y nvidia-fabric-manager-${DRIVER_VERSION} libnvidia-nscq-${DRIVER_BRANCH}-${DRIVER_VERSION} ; \
-            fi \
+            fi ; \
             if [ "$DRIVER_BRANCH" -ge "580" ]; then \
             dnf install -y nvidia-imex-${DRIVER_VERSION} libnvdsm-${DRIVER_VERSION}; \
             elif [ "$DRIVER_BRANCH" -ge "570" ]; then \
             dnf install -y nvidia-imex-${DRIVER_BRANCH}-${DRIVER_VERSION} libnvsdm-${DRIVER_BRANCH}-${DRIVER_VERSION} ; \
-            fi \
+            fi ; \
             if [ "$DRIVER_BRANCH" -ge "550" ]; then \
             dnf install -y infiniband-diags nvlsm ; \
             fi \

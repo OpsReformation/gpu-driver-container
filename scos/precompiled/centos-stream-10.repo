@@ -13,3 +13,13 @@ gpgkey=https://www.centos.org/keys/RPM-GPG-KEY-CentOS-Official-SHA256
 gpgcheck=1
 repo_gpgcheck=0
 enabled=1
+
+# nvidia-driver-libs requires egl-gbm/egl-wayland/egl-x11, which RHEL 10
+# ships in AppStream but CentOS Stream 10 does not carry; EPEL 10 does.
+[epel10]
+name=Extra Packages for Enterprise Linux 10
+baseurl=https://dl.fedoraproject.org/pub/epel/10/Everything/$basearch/
+gpgkey=https://dl.fedoraproject.org/pub/epel/RPM-GPG-KEY-EPEL-10
+gpgcheck=1
+repo_gpgcheck=0
+enabled=1

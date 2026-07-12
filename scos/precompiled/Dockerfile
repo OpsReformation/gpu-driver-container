@@ -7,8 +7,10 @@
 #     has no rhel10 branch yet, so we default to rhel9.
 #   - KREL/KDIST parsing accepts CentOS Stream kernels (".el10" without the
 #     RHEL z-stream "_N" suffix).
-#   - Userspace RPMs resolve against CentOS Stream 10 repos instead of
-#     RHSM-entitled repos; no subscription-manager, no build secrets.
+#   - Userspace RPMs resolve against CentOS Stream 10 + EPEL 10 repos
+#     instead of RHSM-entitled repos; no subscription-manager, no build
+#     secrets. EPEL supplies the egl-gbm/egl-wayland/egl-x11 deps of
+#     nvidia-driver-libs that CS10 lacks.
 #   - No "dnf module enable": el10 repos carry no modularity metadata;
 #     version-pinned installs select the driver branch.
 #   - No drm.ko.xz COPY from the builder: the el10 kernel builds drm into

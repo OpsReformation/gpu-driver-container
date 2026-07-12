@@ -15,12 +15,10 @@
 # Run this workflow on pull requests or merge to main/release branches
 name: image
 
+# Fork: auto-triggers disabled; upstream targets NVIDIA-internal runners
+# (linux-amd64-cpu4) that do not exist here. Manual dispatch only.
 on:
-  push:
-    branches:
-      - main
-      - "pull-request/[0-9]+"
-      - release-*
+  workflow_dispatch:
 
 jobs:
   image:

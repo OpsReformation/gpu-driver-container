@@ -14,13 +14,10 @@
 
 name: End-to-end tests
 
+# Fork: auto-triggers disabled; upstream targets NVIDIA-internal runners
+# and AWS secrets that do not exist here. Manual dispatch only.
 on:
-  workflow_run:
-    workflows: [image]
-    types:
-      - completed
-    branches:
-      - main
+  workflow_dispatch:
 
 permissions:
   contents: read

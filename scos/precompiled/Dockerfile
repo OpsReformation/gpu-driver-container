@@ -11,6 +11,9 @@
 #     RHSM-entitled repos; no subscription-manager, no build secrets.
 #   - No "dnf module enable": el10 repos carry no modularity metadata;
 #     version-pinned installs select the driver branch.
+#   - No drm.ko.xz COPY from the builder: the el10 kernel builds drm into
+#     the kernel (see modules.builtin), so the file does not exist and the
+#     dependency is satisfied by the host kernel at modprobe time.
 ARG DRIVER_TOOLKIT_IMAGE
 ARG CUDA_VERSION
 ARG CUDA_DIST
@@ -137,9 +140,6 @@ RUN rm -rf /lib/modules/${KERNEL_VERSION_NOARCH}.${BUILD_ARCH} \
     && touch /lib/modules/${KERNEL_VERSION_NOARCH}.${BUILD_ARCH}/modules.order \
     && touch /lib/modules/${KERNEL_VERSION_NOARCH}.${BUILD_ARCH}/modules.builtin \
     && depmod ${KERNEL_VERSION_NOARCH}.${BUILD_ARCH}
-
-# Copy the DRM module dependency from the builder
-COPY --from=builder /lib/modules/${KERNEL_VERSION_NOARCH}.${BUILD_ARCH}/kernel/drivers/gpu/drm/drm.ko.xz /lib/modules/${KERNEL_VERSION_NOARCH}.${BUILD_ARCH}/kernel/drivers/gpu/drm/drm.ko.xz
 
 # Copy the built NVIDIA driver RPM from the builder
 COPY --from=builder /home/builder/yum-packaging-precompiled-kmod/RPMS/${TARGET_ARCH}/*.rpm /rpms/

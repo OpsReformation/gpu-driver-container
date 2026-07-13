@@ -16,6 +16,10 @@
 #   - No drm.ko.xz COPY from the builder: the el10 kernel builds drm into
 #     the kernel (see modules.builtin), so the file does not exist and the
 #     dependency is satisfied by the host kernel at modprobe time.
+#   - Koji kernel-devel fallback: OKD DTKs can lag the release's actual
+#     node kernel (4.21.0-okd-scos.11 ships DTK kernel -213 while its nodes
+#     run -219); when /usr/src/kernels/${KERNEL_VERSION} is absent, the
+#     builder installs the matching kernel-devel from CentOS Stream koji.
 ARG DRIVER_TOOLKIT_IMAGE
 ARG CUDA_VERSION
 ARG CUDA_DIST
@@ -39,6 +43,16 @@ ARG DRIVER_PATH='kernel'
 ARG BUILDER_USER=''
 ARG BUILDER_EMAIL=''
 ARG DRIVER_STREAM_TYPE=''
+
+RUN if [ ! -d "/usr/src/kernels/${KERNEL_VERSION}" ]; then \
+        KOJI_VR=$(echo "${KERNEL_VERSION}" | sed "s/\.${BUILD_ARCH}\$//") \
+        && KOJI_V=$(echo "${KOJI_VR}" | cut -d '-' -f 1) \
+        && KOJI_R=$(echo "${KOJI_VR}" | cut -d '-' -f 2) \
+        && echo "DTK does not carry ${KERNEL_VERSION}; installing kernel-devel from koji" \
+        && dnf install -y \
+            https://kojihub.stream.centos.org/kojifiles/packages/kernel/${KOJI_V}/${KOJI_R}/${BUILD_ARCH}/kernel-devel-${KOJI_VR}.${BUILD_ARCH}.rpm \
+        && dnf clean all ; \
+    fi
 
 RUN useradd -u 1001 -m -s /bin/bash builder
 

@@ -16,12 +16,15 @@
 #                           derive the OS tag (scos4.21)
 #   --dtk-image IMAGE       Driver toolkit image (overrides --okd-version
 #                           resolution)
-#   --kernel-version KVER   Target kernel, e.g. 6.12.0-213.el10.x86_64
-#                           (default: read from the DTK image)
-#   --driver-version VER    NVIDIA driver version, e.g. 580.105.08 (required)
+#   --kernel-version KVER   Target node kernel, e.g. 6.12.0-219.el10.x86_64
+#                           (default: read from the DTK image; pass this
+#                           explicitly when the DTK lags the node kernel —
+#                           the Dockerfile pulls matching kernel-devel from
+#                           CentOS Stream koji)
+#   --driver-version VER    NVIDIA driver version, e.g. 580.126.20 (required)
 #   --cuda-version VER      CUDA version for the base image (default: 13.0.1)
-#   --os-tag TAG            OS tag suffix, e.g. scos4.21 (default: derived
-#                           from --okd-version)
+#   --os-tag TAG            OS tag suffix the GPU operator computes for the
+#                           nodes (default: centos10)
 #   --registry REGISTRY     Container registry URL (default: ghcr.io/opsreformation)
 #   --image IMAGE           Image name (default: driver)
 #   --tag TAG               Image tag (default: <driver>-<kernel>-<os-tag>)
@@ -47,7 +50,7 @@ DTK_IMAGE=""
 KERNEL_VERSION=""
 DRIVER_VERSION=""
 CUDA_VERSION="13.0.1"
-OS_TAG=""
+OS_TAG="centos10"
 REGISTRY="ghcr.io/opsreformation"
 IMAGE_NAME="driver"
 TAG=""
@@ -149,15 +152,6 @@ if [[ -z "$KERNEL_VERSION" ]]; then
     KERNEL_VERSION=$(docker run --rm --platform linux/amd64 "$DTK_IMAGE" \
         cat /etc/driver-toolkit-release.json | python3 -c 'import json,sys; print(json.load(sys.stdin)["KERNEL_VERSION"])')
     echo "Kernel version: ${KERNEL_VERSION}"
-fi
-
-# Derive the OS tag (4.21.0-okd-scos.11 -> scos4.21)
-if [[ -z "$OS_TAG" ]]; then
-    if [[ -z "$OKD_VERSION" ]]; then
-        echo "Error: --os-tag is required when --okd-version is not given"
-        exit 1
-    fi
-    OS_TAG="scos$(echo "$OKD_VERSION" | cut -d. -f1-2)"
 fi
 
 DRIVER_BRANCH="${DRIVER_VERSION%%.*}"

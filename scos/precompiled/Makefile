@@ -29,9 +29,9 @@ DRIVER_TYPE ?= passthrough
 DRIVER_OPEN ?= false
 DRIVER_STREAM_TYPE ?= ''
 
-# e.g. scos4.21 for OKD 4.21 — must match the OS tag the GPU operator
-# computes for the cluster's nodes
-OS_TAG ?= ''
+# Must match the OS tag the GPU operator computes for the cluster's nodes
+# (node os-release ID + major version; centos10 on SCOS 10 nodes)
+OS_TAG ?= centos10
 
 # e.g. quay.io/okd/scos-content@sha256:... — resolve per OKD release with:
 #   oc adm release info <release-image> --image-for=driver-toolkit

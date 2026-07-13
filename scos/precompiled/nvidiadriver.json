@@ -9,7 +9,7 @@
     "usePrecompiled": true,
     "repository": "ghcr.io/opsreformation",
     "image": "driver",
-    "version": "580.105.08",
+    "version": "580.126.20",
     "imagePullPolicy": "Always",
     "nodeSelector": {},
     "manager": {},

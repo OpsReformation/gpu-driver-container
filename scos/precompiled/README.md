@@ -37,11 +37,20 @@ Run it via workflow dispatch with the target OKD release and driver version
 **before upgrading the cluster**, so the driver image for the new kernel
 exists when nodes reboot into it.
 
+OKD DTKs sometimes lag the release's actual node kernel (e.g.
+4.21.0-okd-scos.11 ships a DTK built for kernel `-213` while its nodes run
+`-219`). When that happens, pass the node kernel (`uname -r` /
+`oc get nodes -o wide`) via the `kernel_version` dispatch input — the
+Dockerfile detects the missing headers and installs the matching
+kernel-devel from CentOS Stream koji, which retains all kernel builds
+after the Stream mirrors rotate.
+
 ### Local
 
 ```
 ./build-scos-driver.sh --okd-version 4.21.0-okd-scos.11 \
-    --driver-version 580.105.08 --load
+    --kernel-version $(oc get nodes -o jsonpath='{.items[0].status.nodeInfo.kernelVersion}') \
+    --driver-version 580.126.20 --load
 ```
 
 Or with the Makefile, mirroring the upstream flavors:
@@ -51,11 +60,11 @@ export DRIVER_TOOLKIT_IMAGE=$( \
     oc adm release info --image-for=driver-toolkit \
     quay.io/okd/scos-release:4.21.0-okd-scos.11 \
 )
-export KERNEL_VERSION=$(docker run --rm ${DRIVER_TOOLKIT_IMAGE} \
-    cat /etc/driver-toolkit-release.json | jq -r '.KERNEL_VERSION')
-export DRIVER_VERSION=580.105.08
+# Prefer the node kernel over the DTK's when they differ
+export KERNEL_VERSION=$(oc get nodes -o jsonpath='{.items[0].status.nodeInfo.kernelVersion}')
+export DRIVER_VERSION=580.126.20
 export DRIVER_EPOCH=1
-export OS_TAG=scos4.21
+export OS_TAG=centos10
 
 make image image-push
 ```
@@ -63,9 +72,9 @@ make image image-push
 Notes:
 
 * `OS_TAG` must match the OS tag the GPU operator computes for the
-  cluster's nodes (`scos` + OKD major.minor, derived from the node's
-  os-release ID and the cluster version). Verify against the image the
-  driver daemonset actually tries to pull on first deployment.
+  cluster's nodes: os-release ID + major version, which is `centos10` on
+  SCOS 10 nodes (verified against a live OKD 4.21 cluster). Confirm
+  against the image the driver daemonset actually tries to pull.
 * The driver version must exist both as a Tesla runfile
   (`https://us.download.nvidia.com/tesla/<version>/`) and as userspace RPMs
   in the [rhel10 CUDA repo](https://developer.download.nvidia.com/compute/cuda/repos/rhel10/x86_64/).
@@ -77,7 +86,7 @@ Notes:
 
 The image tag follows the upstream precompiled format
 `${DRIVER_VERSION}-${KERNEL_VERSION}-${OS_TAG}`, e.g.
-`ghcr.io/opsreformation/driver:580.105.08-6.12.0-213.el10.x86_64-scos4.21`.
+`ghcr.io/opsreformation/driver:580.126.20-6.12.0-219.el10.x86_64-centos10`.
 A driver-branch alias (`580-...`) is pushed alongside it.
 
 Define the `NVIDIADriver` custom resource to use the precompiled image:
@@ -87,7 +96,7 @@ Define the `NVIDIADriver` custom resource to use the precompiled image:
     usePrecompiled: true
     repository: ghcr.io/opsreformation
     image: driver
-    version: 580.105.08
+    version: 580.126.20
 ```
 
 And enable the CRD in the `ClusterPolicy` (note

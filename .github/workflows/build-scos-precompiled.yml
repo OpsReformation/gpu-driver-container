@@ -24,7 +24,17 @@ on:
         description: 'NVIDIA driver version'
         required: false
         type: string
-        default: '580.105.08'
+        default: '580.126.20'
+      kernel_version:
+        description: 'Target node kernel (overrides the DTK kernel; needed when the OKD DTK lags the node kernel)'
+        required: false
+        type: string
+        default: ''
+      os_tag:
+        description: 'OS tag suffix the GPU operator computes for the nodes'
+        required: false
+        type: string
+        default: 'centos10'
       cuda_version:
         description: 'CUDA version for the base image'
         required: false
@@ -40,8 +50,10 @@ env:
   IMAGE_NAME: driver
   REGISTRY: ghcr.io
   OKD_VERSION: ${{ inputs.okd_version || '4.21.0-okd-scos.11' }}
-  DRIVER_VERSION: ${{ inputs.driver_version || '580.105.08' }}
+  DRIVER_VERSION: ${{ inputs.driver_version || '580.126.20' }}
   CUDA_VERSION: ${{ inputs.cuda_version || '13.0.1' }}
+  KERNEL_VERSION_OVERRIDE: ${{ inputs.kernel_version || '' }}
+  OS_TAG_INPUT: ${{ inputs.os_tag || 'centos10' }}
 
 jobs:
   lint-and-validate:
@@ -84,10 +96,15 @@ jobs:
           dtk_image=$(jq -r '.spec.tags[] | select(.name=="driver-toolkit") | .from.name' image-references)
           echo "DTK image: $dtk_image"
 
-          kernel_version=$(docker run --rm "$dtk_image" cat /etc/driver-toolkit-release.json | jq -r .KERNEL_VERSION)
-          echo "Kernel version: $kernel_version"
+          if [ -n "$KERNEL_VERSION_OVERRIDE" ]; then
+            kernel_version="$KERNEL_VERSION_OVERRIDE"
+            echo "Kernel version (override): $kernel_version"
+          else
+            kernel_version=$(docker run --rm "$dtk_image" cat /etc/driver-toolkit-release.json | jq -r .KERNEL_VERSION)
+            echo "Kernel version (from DTK): $kernel_version"
+          fi
 
-          os_tag="scos$(echo "$OKD_VERSION" | cut -d. -f1-2)"
+          os_tag="$OS_TAG_INPUT"
           echo "OS tag: $os_tag"
 
           echo "dtk_image=$dtk_image" >> "$GITHUB_OUTPUT"
